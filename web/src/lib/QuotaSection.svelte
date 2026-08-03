@@ -66,13 +66,27 @@
 		hourCycle: 'h23'
 	});
 
+	/** Countdown to the reset; reads `now`, so the ticker keeps it honest. */
 	function resets(window: QuotaWindow): string {
+		const at = Date.parse(window.resets_at);
+		if (!Number.isFinite(at)) return '';
+		const minutes = Math.floor((at - now) / 60_000);
+		if (minutes <= 0) return 'resets now';
+		const days = Math.floor(minutes / 1440);
+		const hours = Math.floor((minutes % 1440) / 60);
+		if (days > 0) return `resets in ${days}d ${hours}h`;
+		if (hours > 0) return `resets in ${hours}h ${minutes % 60}m`;
+		return `resets in ${minutes}m`;
+	}
+
+	/** The absolute Sofia-time moment, offered as the countdown's tooltip. */
+	function resetsAt(window: QuotaWindow): string {
 		const at = Date.parse(window.resets_at);
 		if (!Number.isFinite(at)) return '';
 		const parts = resetFormat.formatToParts(at);
 		const value = (type: string) =>
 			parts.find((part) => part.type === type)?.value ?? '';
-		return `resets ${value('day')}.${value('month')}, ${value('hour')}:${value('minute')}`;
+		return `${value('day')}.${value('month')}, ${value('hour')}:${value('minute')}`;
 	}
 
 	function updated(provider: QuotaProvider): string | null {
@@ -129,7 +143,6 @@
 				<article class="quota-card">
 					<header class="card-header">
 						<h3>{provider.label}</h3>
-						<span class="card-tag">{provider.id}</span>
 						{#if provider.plan}<span class="card-plan">{provider.plan}</span
 							>{/if}
 					</header>
@@ -144,7 +157,9 @@
 							<div class="limit">
 								<div class="limit-row">
 									<span class="limit-label">{window.label}</span>
-									<span class="limit-meta">{resets(window)}</span>
+									<span class="limit-meta" title={resetsAt(window)}
+										>{resets(window)}</span
+									>
 									<span class="limit-percent {level(window.used_percent)}"
 										>{Math.round(window.used_percent)}%</span
 									>
@@ -302,11 +317,6 @@
 		margin: 0;
 		font-size: 1rem;
 		font-weight: 500;
-	}
-
-	.card-tag {
-		font: 0.72rem var(--font-mono);
-		color: var(--muted);
 	}
 
 	.card-plan {
