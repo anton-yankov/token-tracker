@@ -15,6 +15,7 @@ defmodule TokenTrackerWeb.Router do
     get("/healthz", HealthController, :show)
     get("/report", ReportController, :show)
     get("/system", SystemController, :show)
+    get("/quota", QuotaController, :show)
     match(:*, "/*path", NotFoundController, :show)
   end
 
