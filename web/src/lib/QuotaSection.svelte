@@ -89,10 +89,23 @@
 		return `${value('day')}.${value('month')}, ${value('hour')}:${value('minute')}`;
 	}
 
+	/** Age of the snapshot; reads `now`, so the ticker keeps it honest. */
 	function updated(provider: QuotaProvider): string | null {
 		if (!provider.updated_at) return null;
 		const at = Date.parse(provider.updated_at);
-		return Number.isFinite(at) ? updatedFormat.format(at) : null;
+		if (!Number.isFinite(at)) return null;
+		const minutes = Math.floor((now - at) / 60_000);
+		if (minutes < 1) return 'updated just now';
+		if (minutes < 60) return `updated ${minutes}m ago`;
+		const hours = Math.floor(minutes / 60);
+		return `updated ${hours}h ${minutes % 60}m ago`;
+	}
+
+	/** The absolute Sofia-time moment, offered as the age's tooltip. */
+	function updatedAt(provider: QuotaProvider): string {
+		if (!provider.updated_at) return '';
+		const at = Date.parse(provider.updated_at);
+		return Number.isFinite(at) ? updatedFormat.format(at) : '';
 	}
 
 	function target(window: QuotaWindow): number | null {
@@ -204,7 +217,9 @@
 							>
 						{/if}
 						{#if updated(provider)}
-							<span class="card-updated">updated {updated(provider)}</span>
+							<span class="card-updated" title={updatedAt(provider)}
+								>{updated(provider)}</span
+							>
 						{/if}
 					</footer>
 				</article>

@@ -2,10 +2,11 @@ defmodule TokenTracker.Quota do
   @moduledoc """
   Subscription quota snapshot for the local Claude Code and Codex accounts.
 
-  Providers are queried on demand with per-provider cadences: Anthropic's
-  OAuth usage endpoint rate limits aggressively, so Claude refreshes on a
-  slower clock than Codex and honours Retry-After with a backoff when a 429
-  arrives anyway. When a provider fails, the last good snapshot is served
+  Providers are queried on demand, at most once a minute each: with no
+  polling on the page, fetch pressure is user-paced, and Anthropic's
+  aggressively rate-limited endpoint is guarded by honouring Retry-After
+  with a backoff when a 429 arrives. When a provider fails, the last good
+  snapshot is served
   alongside the error so the dashboard can render stale bars instead of an
   empty card. Snapshots also persist to disk, so a service restart during a
   backoff still has last data to show.
@@ -19,7 +20,7 @@ defmodule TokenTracker.Quota do
   @backoff_min_ms 5 * 60_000
 
   @providers [
-    %{id: "claude", module: TokenTracker.Quota.Claude, ttl_ms: 180_000},
+    %{id: "claude", module: TokenTracker.Quota.Claude, ttl_ms: 60_000},
     %{id: "codex", module: TokenTracker.Quota.Codex, ttl_ms: 60_000}
   ]
 
