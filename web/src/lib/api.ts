@@ -104,13 +104,25 @@ export const number = (value: number) =>
 		notation: value >= 1_000_000 ? 'compact' : 'standard'
 	}).format(value);
 
-export const money = (value: number) => {
-	const precision = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
+/**
+ * Catalog prices are USD; the dashboard displays euro. The rate is loaded from
+ * `/api/fx` by the layout before any page renders, so a conservative fallback
+ * only ever covers a failed fetch.
+ */
+let eurPerUsd = 0.86;
 
-	return new Intl.NumberFormat(undefined, {
+export const setEurPerUsd = (rate: number) => {
+	if (Number.isFinite(rate) && rate > 0) eurPerUsd = rate;
+};
+
+export const money = (value: number) => {
+	const euros = value * eurPerUsd;
+	const precision = Math.abs(euros) > 0 && Math.abs(euros) < 0.01 ? 4 : 2;
+
+	return new Intl.NumberFormat('bg-BG', {
 		style: 'currency',
-		currency: 'USD',
+		currency: 'EUR',
 		minimumFractionDigits: precision,
 		maximumFractionDigits: precision
-	}).format(value);
+	}).format(euros);
 };

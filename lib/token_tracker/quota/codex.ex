@@ -42,7 +42,6 @@ defmodule TokenTracker.Quota.Codex do
            id: "codex",
            label: "Codex",
            plan: plan_label(body),
-           email: Map.get(body, "email"),
            windows: windows(body)
          }}
 

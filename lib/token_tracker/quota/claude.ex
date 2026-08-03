@@ -98,7 +98,6 @@ defmodule TokenTracker.Quota.Claude do
            id: "claude",
            label: "Claude",
            plan: credentials.plan,
-           email: nil,
            windows: windows(body)
          }}
 

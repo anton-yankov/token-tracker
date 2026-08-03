@@ -85,7 +85,7 @@ defmodule TokenTracker.Quota do
 
     base =
       entry.data ||
-        %{id: id, label: String.capitalize(id), plan: nil, email: nil, windows: []}
+        %{id: id, label: String.capitalize(id), plan: nil, windows: []}
 
     Map.merge(base, %{
       updated_at: entry.updated_at && iso(entry.updated_at),

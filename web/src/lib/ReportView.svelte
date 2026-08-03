@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { money, number, type Chart, type ReportResponse } from '$lib/api';
 	import BarChart from '$lib/BarChart.svelte';
+	import { brandColor } from '$lib/brand';
 	import LineChart from '$lib/LineChart.svelte';
 	import { displaySeriesLabel } from '$lib/series-label';
 
@@ -79,14 +80,16 @@
 			const identity = series.label;
 			if (assigned.has(identity)) continue;
 
-			// Codex keeps its established teal, and claiming it here stops another
-			// series from being given the same colour.
-			const preferred =
-				report.view === 'agent' && identity.toLowerCase() === 'codex'
-					? 0
-					: hash(identity) % palette.length;
+			// Claude and Codex keep their brand colours, and claiming them here
+			// stops another series from being given the same colour.
+			const brand = brandColor(identity);
+			if (brand) {
+				taken.add(brand);
+				assigned.set(identity, brand);
+				continue;
+			}
 
-			claim(identity, preferred);
+			claim(identity, hash(identity) % palette.length);
 		}
 
 		return assigned;
