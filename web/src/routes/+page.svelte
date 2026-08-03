@@ -11,6 +11,7 @@
 		maxFilterValues,
 		reportDependency
 	} from '$lib/report-query';
+	import QuotaSection from '$lib/QuotaSection.svelte';
 	import ReportView from '$lib/ReportView.svelte';
 	import { dashboardSearchSchema, type FilterKey } from '$lib/search-params';
 
@@ -143,6 +144,8 @@
 			</div>
 		</div>
 	</header>
+
+	<QuotaSection />
 
 	<section class="controls" aria-label="Report controls">
 		<div class="control-group" role="group" aria-label="Period">
