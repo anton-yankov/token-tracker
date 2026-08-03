@@ -7,8 +7,11 @@ defmodule TokenTracker.Quota do
   slower clock than Codex and honours Retry-After with a backoff when a 429
   arrives anyway. When a provider fails, the last good snapshot is served
   alongside the error so the dashboard can render stale bars instead of an
-  empty card.
+  empty card. Snapshots also persist to disk, so a service restart during a
+  backoff still has last data to show.
   """
+
+  alias TokenTracker.Paths
 
   @cache_key {__MODULE__, :cache}
   @forced_min_ms 15_000
@@ -82,6 +85,7 @@ defmodule TokenTracker.Quota do
       end)
 
     :persistent_term.put(@cache_key, cache)
+    persist(cache)
     cache
   end
 
@@ -90,7 +94,45 @@ defmodule TokenTracker.Quota do
   end
 
   defp read_cache do
-    :persistent_term.get(@cache_key, %{})
+    case :persistent_term.get(@cache_key, :missing) do
+      :missing ->
+        cache = load_persisted()
+        :persistent_term.put(@cache_key, cache)
+        cache
+
+      cache ->
+        cache
+    end
+  end
+
+  defp cache_file, do: Path.join(Paths.home(), "quota-cache.json")
+
+  # Only the last good data survives a restart; errors, backoffs, and fetch
+  # clocks start over, so a stored snapshot never delays a fresh attempt.
+  defp persist(cache) do
+    stored =
+      for {id, %{data: data, updated_at: updated_at}} <- cache,
+          data != nil,
+          into: %{},
+          do: {id, %{"data" => data, "updated_at" => updated_at}}
+
+    with {:ok, encoded} <- Jason.encode(stored) do
+      _ = File.write(cache_file(), encoded)
+    end
+
+    :ok
+  end
+
+  defp load_persisted do
+    with {:ok, body} <- File.read(cache_file()),
+         {:ok, stored} when is_map(stored) <- Jason.decode(body) do
+      for {id, %{"data" => data, "updated_at" => updated_at}} <- stored,
+          is_map(data) and is_integer(updated_at),
+          into: %{},
+          do: {id, %{empty_entry() | data: data, updated_at: updated_at}}
+    else
+      _ -> %{}
+    end
   end
 
   defp present(cache, id) do
