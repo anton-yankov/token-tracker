@@ -1,5 +1,10 @@
 # Token Tracker
 
+> **Personal fork** of [davis7dotsh/token-tracker](https://github.com/davis7dotsh/token-tracker)
+> by Davis — all credit for the original tool goes to him. This fork adds a
+> subscriptions/quota section (Claude Code + Codex limits with a day-step pace
+> marker) and Bulgarian-locale display tweaks for personal use.
+
 A private, multi-device CLI that imports Codex, Claude Code, and Pi token
 history into SQLite. A standalone installation remains local-only. A host
 combines revisioned session summaries from its own collector and any enrolled
