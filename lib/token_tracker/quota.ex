@@ -2,21 +2,22 @@ defmodule TokenTracker.Quota do
   @moduledoc """
   Subscription quota snapshot for the local Claude Code and Codex accounts.
 
-  Providers are queried on demand and cached for a short interval so dashboard
-  refreshes never hammer the upstream usage endpoints (Anthropic's in
-  particular rate limits aggressively). When a provider fails, the last good
-  snapshot is served alongside the error so the dashboard can render stale
-  bars instead of an empty card.
+  Providers are queried on demand with per-provider cadences: Anthropic's
+  OAuth usage endpoint rate limits aggressively, so Claude refreshes on a
+  slower clock than Codex and honours Retry-After with a backoff when a 429
+  arrives anyway. When a provider fails, the last good snapshot is served
+  alongside the error so the dashboard can render stale bars instead of an
+  empty card.
   """
 
   @cache_key {__MODULE__, :cache}
-  @ttl_ms 60_000
-  @forced_ttl_ms 10_000
+  @forced_min_ms 15_000
   @fetch_timeout 20_000
+  @backoff_min_ms 5 * 60_000
 
   @providers [
-    %{id: "claude", module: TokenTracker.Quota.Claude},
-    %{id: "codex", module: TokenTracker.Quota.Codex}
+    %{id: "claude", module: TokenTracker.Quota.Claude, ttl_ms: 180_000},
+    %{id: "codex", module: TokenTracker.Quota.Codex, ttl_ms: 60_000}
   ]
 
   def report(opts \\ []) do
@@ -25,10 +26,9 @@ defmodule TokenTracker.Quota do
     cache = read_cache()
 
     cache =
-      if fresh?(cache, now, force) do
-        cache
-      else
-        refresh(cache, now)
+      case Enum.filter(@providers, &due?(cache[&1.id], &1, now, force)) do
+        [] -> cache
+        due -> refresh(cache, due, now)
       end
 
     %{
@@ -37,51 +37,64 @@ defmodule TokenTracker.Quota do
     }
   end
 
-  defp fresh?(%{fetched_at: fetched_at}, now, force) when is_integer(fetched_at) do
-    ttl = if force, do: @forced_ttl_ms, else: @ttl_ms
-    now - fetched_at < ttl
+  # A provider is due when its backoff window has passed and its snapshot has
+  # outlived the provider's TTL — or a forced refresh asks sooner, floored so
+  # repeated clicks cannot hammer the endpoints. A backoff is never overridden:
+  # retrying into a rate limit only extends it.
+  defp due?(entry, provider, now, force) do
+    entry = entry || empty_entry()
+    ttl = if force, do: @forced_min_ms, else: provider.ttl_ms
+    now >= entry.not_before and now - entry.fetched_at >= ttl
   end
 
-  defp fresh?(_cache, _now, _force), do: false
-
-  defp refresh(cache, now) do
+  defp refresh(cache, due, now) do
     results =
-      @providers
-      |> Task.async_stream(fn provider -> {provider.id, provider.module.fetch()} end,
+      due
+      |> Task.async_stream(fn provider -> {provider, provider.module.fetch()} end,
         timeout: @fetch_timeout,
         on_timeout: :kill_task,
         ordered: true
       )
-      |> Enum.zip(@providers)
-      |> Map.new(fn
-        {{:ok, {id, result}}, _provider} -> {id, result}
-        {{:exit, _reason}, provider} -> {provider.id, {:error, "the usage check timed out"}}
+      |> Enum.zip(due)
+      |> Enum.map(fn
+        {{:ok, result}, _provider} -> result
+        {{:exit, _reason}, provider} -> {provider, {:error, "the usage check timed out"}}
       end)
 
-    entries =
-      Map.new(@providers, fn %{id: id} ->
-        previous = cache[:entries][id] || %{data: nil, updated_at: nil, error: nil}
+    cache =
+      Enum.reduce(results, cache, fn {provider, result}, cache ->
+        previous = cache[provider.id] || empty_entry()
 
         entry =
-          case results[id] do
-            {:ok, data} -> %{data: data, updated_at: now, error: nil}
-            {:error, reason} -> %{previous | error: reason}
+          case result do
+            {:ok, data} ->
+              %{data: data, updated_at: now, error: nil, fetched_at: now, not_before: 0}
+
+            {:error, {:rate_limited, retry_after_s, reason}} ->
+              backoff = max(retry_after_s * 1_000, @backoff_min_ms)
+              %{previous | error: reason, fetched_at: now, not_before: now + backoff}
+
+            {:error, reason} ->
+              %{previous | error: reason, fetched_at: now}
           end
 
-        {id, entry}
+        Map.put(cache, provider.id, entry)
       end)
 
-    cache = %{fetched_at: now, entries: entries}
     :persistent_term.put(@cache_key, cache)
     cache
   end
 
+  defp empty_entry do
+    %{data: nil, updated_at: nil, error: nil, fetched_at: 0, not_before: 0}
+  end
+
   defp read_cache do
-    :persistent_term.get(@cache_key, %{fetched_at: nil, entries: %{}})
+    :persistent_term.get(@cache_key, %{})
   end
 
   defp present(cache, id) do
-    entry = cache[:entries][id] || %{data: nil, updated_at: nil, error: "unavailable"}
+    entry = cache[id] || %{empty_entry() | error: "unavailable"}
 
     base =
       entry.data ||

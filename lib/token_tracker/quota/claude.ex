@@ -104,14 +104,25 @@ defmodule TokenTracker.Quota.Claude do
       {:ok, %Req.Response{status: 401}} ->
         {:error, "the Claude token was rejected; open Claude Code to refresh it"}
 
-      {:ok, %Req.Response{status: 429}} ->
-        {:error, "Anthropic is rate limiting usage checks; retrying soon"}
+      {:ok, %Req.Response{status: 429} = response} ->
+        {:error,
+         {:rate_limited, retry_after_seconds(response),
+          "Anthropic is rate limiting usage checks; backing off"}}
 
       {:ok, %Req.Response{status: status}} ->
         {:error, "the Claude usage endpoint returned HTTP #{status}"}
 
       {:error, error} ->
         {:error, "the Claude usage request failed: #{Exception.message(error)}"}
+    end
+  end
+
+  defp retry_after_seconds(response) do
+    with [value | _rest] <- Req.Response.get_header(response, "retry-after"),
+         {seconds, _rest} when seconds > 0 <- Integer.parse(value) do
+      seconds
+    else
+      _ -> 0
     end
   end
 

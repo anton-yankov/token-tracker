@@ -49,7 +49,7 @@ defmodule TokenTracker.Quota.Codex do
         {:error, "the Codex token was rejected; run the Codex CLI to refresh it"}
 
       {:ok, %Req.Response{status: 429}} ->
-        {:error, "OpenAI is rate limiting usage checks; retrying soon"}
+        {:error, {:rate_limited, 0, "OpenAI is rate limiting usage checks; backing off"}}
 
       {:ok, %Req.Response{status: status}} ->
         {:error, "the Codex usage endpoint returned HTTP #{status}"}
