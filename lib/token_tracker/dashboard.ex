@@ -224,7 +224,7 @@ defmodule TokenTracker.Dashboard do
          end_utc: DateTime.shift_zone!(end_local, "Etc/UTC", Tz.TimeZoneDatabase),
          buckets: buckets,
          key: &Date.to_iso8601/1,
-         label: &Calendar.strftime(&1, "%b %-d")
+         label: &Calendar.strftime(&1, "%d.%m")
        }}
     end
   end
@@ -658,7 +658,7 @@ defmodule TokenTracker.Dashboard do
     do:
       datetime
       |> DateTime.shift_zone!(time_zone, Tz.TimeZoneDatabase)
-      |> Calendar.strftime("%-I %p")
+      |> Calendar.strftime("%H:%M")
 
   defp iso(nil), do: nil
   defp iso(datetime), do: DateTime.to_iso8601(datetime)

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { brandColor } from '$lib/brand';
 	import {
 		dayStepTargetPercent,
 		paceTimeZone,
@@ -66,7 +67,7 @@
 		const parts = resetFormat.formatToParts(at);
 		const value = (type: string) =>
 			parts.find((part) => part.type === type)?.value ?? '';
-		return `resets ${value('month')}/${value('day')}, ${value('hour')}:${value('minute')}`;
+		return `resets ${value('day')}.${value('month')}, ${value('hour')}:${value('minute')}`;
 	}
 
 	function updated(provider: QuotaProvider): string | null {
@@ -115,9 +116,6 @@
 						<span class="card-tag">{provider.id}</span>
 						{#if provider.plan}<span class="card-plan">{provider.plan}</span
 							>{/if}
-						{#if provider.email}
-							<span class="card-email">{provider.email}</span>
-						{/if}
 					</header>
 
 					{#if provider.windows.length === 0}
@@ -130,7 +128,17 @@
 							<div class="limit">
 								<div class="limit-row">
 									<span class="limit-label">{window.label}</span>
-									<span class="limit-meta">{resets(window)}</span>
+									<span class="limit-meta">
+										{#if pace !== null}
+											<span
+												class="pace-tag"
+												title="Expected by end of today (Sofia time): {Math.round(
+													pace
+												)}%">┊{Math.round(pace)}%</span
+											>
+										{/if}
+										{resets(window)}
+									</span>
 									<span class="limit-percent {level(window.used_percent)}"
 										>{Math.round(window.used_percent)}%</span
 									>
@@ -144,8 +152,11 @@
 									aria-valuenow={Math.round(window.used_percent)}
 								>
 									<div
-										class="limit-fill {level(window.used_percent)}"
+										class="limit-fill"
 										style:width="{Math.min(100, window.used_percent)}%"
+										style:background={window.used_percent >= 90
+											? 'var(--danger)'
+											: (brandColor(provider.id) ?? 'var(--accent)')}
 									></div>
 									{#if pace !== null}
 										<div
@@ -270,12 +281,6 @@
 		border-radius: 3px;
 	}
 
-	.card-email {
-		margin-left: auto;
-		font: 0.72rem var(--font-mono);
-		color: var(--muted);
-	}
-
 	.card-empty {
 		margin: 4px 0;
 		font-size: 0.85rem;
@@ -301,6 +306,12 @@
 		margin-left: auto;
 		font: 0.72rem var(--font-mono);
 		color: var(--muted);
+	}
+
+	.pace-tag {
+		color: var(--chart-outline);
+		margin-right: 6px;
+		cursor: help;
 	}
 
 	.limit-percent {
@@ -329,14 +340,6 @@
 		height: 100%;
 		border-radius: 3px;
 		background: var(--accent);
-	}
-
-	.limit-fill.warning {
-		background: var(--warning);
-	}
-
-	.limit-fill.danger {
-		background: var(--danger);
 	}
 
 	.limit-pace {

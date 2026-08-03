@@ -3,13 +3,23 @@
 
 	let { data }: { data: SystemResponse } = $props();
 
-	const stamp = (value: string | null) =>
-		value
-			? new Intl.DateTimeFormat(undefined, {
-					dateStyle: 'medium',
-					timeStyle: 'short'
-				}).format(new Date(value))
-			: 'Never';
+	// Dates across the project read as Bulgarian dd.mm with 24-hour time.
+	const stampFormat = new Intl.DateTimeFormat('en-GB', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		hourCycle: 'h23'
+	});
+
+	const stamp = (value: string | null) => {
+		if (!value) return 'Never';
+		const parts = stampFormat.formatToParts(new Date(value));
+		const part = (type: string) =>
+			parts.find((item) => item.type === type)?.value ?? '';
+		return `${part('day')}.${part('month')}.${part('year')}, ${part('hour')}:${part('minute')}`;
+	};
 </script>
 
 <svelte:head><title>System · Token Tracker</title></svelte:head>

@@ -11,7 +11,6 @@ export interface QuotaProvider {
 	id: string;
 	label: string;
 	plan: string | null;
-	email: string | null;
 	updated_at: string | null;
 	error: string | null;
 	stale: boolean;
