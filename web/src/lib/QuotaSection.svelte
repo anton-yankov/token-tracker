@@ -1,49 +1,54 @@
 <script lang="ts">
+	import { invalidate } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { brandColor } from '$lib/brand';
 	import {
 		dayStepTargetPercent,
 		paceTimeZone,
+		quotaDependency,
 		type QuotaProvider,
 		type QuotaResponse,
 		type QuotaWindow
 	} from '$lib/quota';
 
-	let quota = $state<QuotaResponse | null>(null);
-	let failure = $state<string | null>(null);
+	// The promise comes from the page load, so the quota follows the same
+	// lifecycle as the report: it resolves inside the boundary below and
+	// refreshes whenever the load re-runs.
+	let { quota }: { quota: Promise<QuotaResponse> } = $props();
+
 	let refreshing = $state(false);
 	let now = $state(Date.now());
 
-	async function load(force = false) {
+	onMount(() => {
+		// The pace marker steps at midnight even while the page just sits open;
+		// this follows the wall clock and performs no fetches.
+		const tick = setInterval(() => (now = Date.now()), 30_000);
+		return () => clearInterval(tick);
+	});
+
+	/**
+	 * Forces the server to consult the providers, then re-renders through the
+	 * same load path everything else uses. Without the forced request first,
+	 * invalidating alone would usually re-serve the server's cache.
+	 */
+	async function refresh() {
 		refreshing = true;
 		try {
-			const response = await fetch(`/api/quota${force ? '?refresh=1' : ''}`);
-			if (!response.ok) {
-				throw new Error(`The quota could not be loaded (${response.status}).`);
-			}
-			quota = await response.json();
-			failure = null;
-			now = Date.now();
-		} catch (error) {
-			failure =
-				error instanceof Error
-					? error.message
-					: 'The quota could not be loaded.';
+			await fetch('/api/quota?refresh=1');
+			await invalidate(quotaDependency);
 		} finally {
 			refreshing = false;
 		}
 	}
 
-	onMount(() => {
-		load();
-		const poll = setInterval(() => load(), 60_000);
-		// The pace marker and reset labels drift with the clock, not the data.
-		const tick = setInterval(() => (now = Date.now()), 30_000);
-		return () => {
-			clearInterval(poll);
-			clearInterval(tick);
-		};
-	});
+	/** Mirrors the report's retry: re-run the load, then rebuild the boundary. */
+	async function retry(reset: () => void) {
+		try {
+			await invalidate(quotaDependency);
+		} finally {
+			reset();
+		}
+	}
 
 	const resetFormat = new Intl.DateTimeFormat('en-GB', {
 		timeZone: paceTimeZone,
@@ -100,16 +105,16 @@
 			class="quota-refresh"
 			type="button"
 			disabled={refreshing}
-			onclick={() => load(true)}
-			>{refreshing ? 'Refreshing…' : 'Refresh'}</button
+			onclick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button
 		>
 	</div>
 
-	{#if failure && !quota}
-		<p class="notice" role="alert">{failure}</p>
-	{:else if quota}
+	<!-- The boundary owns pending and failed states, exactly as the report's
+	     does: a skeleton on first resolution, an inline notice with a retry on
+	     failure. -->
+	<svelte:boundary>
 		<div class="quota-cards">
-			{#each quota.providers as provider (provider.id)}
+			{#each (await quota).providers as provider (provider.id)}
 				<article class="quota-card">
 					<header class="card-header">
 						<h3>{provider.label}</h3>
@@ -183,13 +188,26 @@
 				</article>
 			{/each}
 		</div>
-	{:else}
-		<div class="quota-cards" aria-hidden="true">
-			{#each ['claude', 'codex'] as key (key)}
-				<article class="quota-card quota-card-pending"></article>
-			{/each}
-		</div>
-	{/if}
+
+		{#snippet pending()}
+			<div class="quota-cards" aria-hidden="true">
+				{#each ['claude', 'codex'] as key (key)}
+					<article class="quota-card quota-card-pending"></article>
+				{/each}
+			</div>
+		{/snippet}
+
+		{#snippet failed(error, reset)}
+			<p class="notice" role="alert">
+				{error instanceof Error
+					? error.message
+					: 'The quota could not be loaded.'}
+				<button class="retry" type="button" onclick={() => retry(reset)}>
+					Try again
+				</button>
+			</p>
+		{/snippet}
+	</svelte:boundary>
 </section>
 
 <style>
@@ -225,6 +243,16 @@
 	.quota-refresh:disabled {
 		color: var(--muted);
 		cursor: default;
+	}
+
+	.retry {
+		margin-left: 10px;
+		border: 1px solid var(--line-strong);
+		background: var(--surface);
+		color: var(--ink);
+		padding: 4px 10px;
+		cursor: pointer;
+		font: 0.72rem var(--font-mono);
 	}
 
 	.quota-cards {

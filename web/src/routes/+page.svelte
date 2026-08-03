@@ -145,7 +145,7 @@
 		</div>
 	</header>
 
-	<QuotaSection />
+	<QuotaSection quota={data.quota} />
 
 	<section class="controls" aria-label="Report controls">
 		<div class="control-group" role="group" aria-label="Period">
