@@ -22,6 +22,9 @@ export interface QuotaResponse {
 	providers: QuotaProvider[];
 }
 
+/** Load dependency key, so a refresh re-runs the page load that fetched it. */
+export const quotaDependency = 'app:quota';
+
 /**
  * The pace budget is anchored to Bulgarian civil days regardless of where the
  * dashboard happens to be viewed from.
