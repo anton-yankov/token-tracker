@@ -93,6 +93,17 @@
 		if (percent >= 75) return 'warning';
 		return 'normal';
 	}
+
+	/** Compact form of a provider error for the stale footer. */
+	function shortError(error: string | null): string {
+		if (!error) return '';
+		const lowered = error.toLowerCase();
+		if (lowered.includes('rate limit')) return 'rate limited';
+		if (lowered.includes('expired') || lowered.includes('rejected'))
+			return 're-auth needed';
+		if (lowered.includes('timed out')) return 'timed out';
+		return 'fetch failed';
+	}
 </script>
 
 <section class="quota" aria-label="Subscription quota">
@@ -133,17 +144,7 @@
 							<div class="limit">
 								<div class="limit-row">
 									<span class="limit-label">{window.label}</span>
-									<span class="limit-meta">
-										{#if pace !== null}
-											<span
-												class="pace-tag"
-												title="Expected by end of today (Sofia time): {Math.round(
-													pace
-												)}%">┊{Math.round(pace)}%</span
-											>
-										{/if}
-										{resets(window)}
-									</span>
+									<span class="limit-meta">{resets(window)}</span>
 									<span class="limit-percent {level(window.used_percent)}"
 										>{Math.round(window.used_percent)}%</span
 									>
@@ -167,10 +168,14 @@
 										<div
 											class="limit-pace"
 											style:left="{pace}%"
-											title="Expected by end of today (Sofia time): {Math.round(
+											aria-label="Expected by end of today (Sofia time): {Math.round(
 												pace
 											)}%"
-										></div>
+										>
+											<span class="pace-bubble" aria-hidden="true"
+												>{Math.round(pace)}%</span
+											>
+										</div>
 									{/if}
 								</div>
 							</div>
@@ -179,7 +184,9 @@
 
 					<footer class="card-footer">
 						{#if provider.stale && provider.error}
-							<span class="card-stale" title={provider.error}>stale data</span>
+							<span class="card-stale" title={provider.error}
+								>stale · {shortError(provider.error)}</span
+							>
 						{/if}
 						{#if updated(provider)}
 							<span class="card-updated">updated {updated(provider)}</span>
@@ -336,12 +343,6 @@
 		color: var(--muted);
 	}
 
-	.pace-tag {
-		color: var(--chart-outline);
-		margin-right: 6px;
-		cursor: help;
-	}
-
 	.limit-percent {
 		font: 0.88rem var(--font-mono);
 		font-variant-numeric: tabular-nums;
@@ -370,12 +371,46 @@
 		background: var(--accent);
 	}
 
+	/* A widened, invisible hit area centred on the dotted line, so the hover
+	   target is comfortably larger than the 2px line itself. */
 	.limit-pace {
 		position: absolute;
 		top: -4px;
 		bottom: -4px;
+		width: 16px;
+		transform: translateX(-50%);
+		cursor: help;
+	}
+
+	.limit-pace::before {
+		content: '';
+		position: absolute;
+		inset: 0 auto 0 50%;
 		border-left: 2px dotted var(--chart-outline);
 		transform: translateX(-1px);
+	}
+
+	.pace-bubble {
+		position: absolute;
+		bottom: calc(100% + 5px);
+		left: 50%;
+		transform: translateX(-50%);
+		border: 1px solid var(--line-strong);
+		background: var(--surface);
+		padding: 2px 7px;
+		font: 0.68rem var(--font-mono);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink);
+		white-space: nowrap;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 120ms ease;
+		z-index: 2;
+	}
+
+	.limit-pace:hover .pace-bubble,
+	.limit-pace:focus-visible .pace-bubble {
+		opacity: 1;
 	}
 
 	.card-footer {
