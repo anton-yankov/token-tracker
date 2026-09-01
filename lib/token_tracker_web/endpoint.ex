@@ -15,7 +15,7 @@ defmodule TokenTrackerWeb.Endpoint do
     at: "/",
     from: :token_tracker,
     gzip: false,
-    only: ~w(robots.txt theme.js),
+    only: ~w(favicon.svg robots.txt theme.js),
     cache_control_for_etags: "no-cache"
   )
 

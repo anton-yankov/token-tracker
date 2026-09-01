@@ -32,7 +32,12 @@ defmodule TokenTracker.Runtime do
   defp validate(_config), do: {:error, "standalone role does not run a network service"}
 
   def child_specs(%{role: "host", web_enabled: true} = config) do
-    [{TokenTracker.Sync.Server, config}, {Scheduler, config}, TokenTrackerWeb.Endpoint]
+    [
+      {TokenTracker.Sync.Server, config},
+      {Scheduler, config},
+      TokenTracker.QuotaTracking.Sampler,
+      TokenTrackerWeb.Endpoint
+    ]
   end
 
   def child_specs(%{role: "host"} = config) do

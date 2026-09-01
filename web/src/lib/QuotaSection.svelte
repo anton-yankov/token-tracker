@@ -11,33 +11,90 @@
 		type QuotaWindow
 	} from '$lib/quota';
 
-	// The promise comes from the page load, so the quota follows the same
-	// lifecycle as the report: it resolves inside the boundary below and
-	// refreshes whenever the load re-runs.
-	let { quota }: { quota: Promise<QuotaResponse> } = $props();
+	import {
+		trackingAction,
+		trackingDependency,
+		type TrackingResponse
+	} from '$lib/tracking';
 
-	let refreshing = $state(false);
+	// The page load only fetches the stored snapshot, so this promise resolves
+	// near-instantly with last data. The live provider check runs here instead,
+	// after first paint, and lands by gliding the bars to the fresh numbers.
+	let {
+		quota,
+		tracking,
+		sessionsOpen = $bindable(false)
+	}: {
+		quota: Promise<QuotaResponse>;
+		tracking: Promise<TrackingResponse>;
+		sessionsOpen?: boolean;
+	} = $props();
+
+	let live = $state<QuotaResponse | null>(null);
+	let checking = $state(false);
 	let now = $state(Date.now());
+
+	// The header's start/stop control needs the resolved value, not the
+	// promise; each invalidation hands in a new promise to follow.
+	let trackingState = $state<TrackingResponse | null>(null);
+	let trackingName = $state('');
+	let trackingBusy = $state(false);
+	let trackingError = $state<string | null>(null);
+
+	$effect(() => {
+		tracking.then(
+			(value) => (trackingState = value),
+			() => {}
+		);
+	});
+
+	/**
+	 * Start and stop both force a provider refresh server-side, so afterwards
+	 * the freshly stamped numbers are already in the server cache: re-running
+	 * the loads paints them without another provider round-trip.
+	 */
+	async function toggleTracking() {
+		if (trackingBusy || !trackingState) return;
+		const active = trackingState.active;
+		if (!active && trackingName.trim() === '') {
+			trackingError = 'name this session first';
+			return;
+		}
+		trackingBusy = true;
+		trackingError = null;
+		try {
+			const path = active
+				? '/api/tracking/stop'
+				: `/api/tracking/start?name=${encodeURIComponent(trackingName.trim())}`;
+			trackingError = await trackingAction(path);
+			if (!trackingError && !active) trackingName = '';
+			await Promise.all([invalidate(trackingDependency), check()]);
+		} finally {
+			trackingBusy = false;
+		}
+	}
 
 	onMount(() => {
 		// The pace marker steps at midnight even while the page just sits open;
 		// this follows the wall clock and performs no fetches.
 		const tick = setInterval(() => (now = Date.now()), 30_000);
+		check();
 		return () => clearInterval(tick);
 	});
 
 	/**
-	 * Forces the server to consult the providers, then re-renders through the
-	 * same load path everything else uses. Without the forced request first,
-	 * invalidating alone would usually re-serve the server's cache.
+	 * Runs the real provider check and swaps the fresh report into place. The
+	 * snapshot stays up if the request fails — the server embeds per-provider
+	 * errors in a successful response, so a non-ok status means the service
+	 * itself is unreachable and there is nothing better to show.
 	 */
-	async function refresh() {
-		refreshing = true;
+	async function check(force = false) {
+		checking = true;
 		try {
-			await fetch('/api/quota?refresh=1');
-			await invalidate(quotaDependency);
+			const response = await fetch(`/api/quota${force ? '?refresh=1' : ''}`);
+			if (response.ok) live = await response.json();
 		} finally {
-			refreshing = false;
+			checking = false;
 		}
 	}
 
@@ -48,6 +105,8 @@
 		} finally {
 			reset();
 		}
+		// The mount-time check failed alongside the load; run it again.
+		check();
 	}
 
 	const resetFormat = new Intl.DateTimeFormat('en-GB', {
@@ -139,12 +198,55 @@
 			<p class="eyebrow">SUBSCRIPTIONS</p>
 			<h2>Quota</h2>
 		</div>
-		<button
-			class="quota-refresh"
-			type="button"
-			disabled={refreshing}
-			onclick={refresh}>{refreshing ? 'Refreshing…' : 'Refresh'}</button
-		>
+		<div class="quota-actions">
+			{#if trackingError}
+				<span class="track-error" role="alert">{trackingError}</span>
+			{/if}
+			{#if trackingState}
+				{#if trackingState.active}
+					<span class="track-name" title="tracking session">
+						● {trackingState.active.name}
+					</span>
+					<button
+						class="quota-refresh"
+						type="button"
+						disabled={trackingBusy}
+						onclick={toggleTracking}>Stop</button
+					>
+				{:else}
+					<input
+						class="track-input"
+						type="text"
+						placeholder="session name"
+						maxlength="60"
+						bind:value={trackingName}
+						onkeydown={(event) => {
+							if (event.key === 'Enter') toggleTracking();
+						}}
+					/>
+					<button
+						class="quota-refresh"
+						type="button"
+						disabled={trackingBusy}
+						onclick={toggleTracking}>Track</button
+					>
+				{/if}
+			{/if}
+			<button
+				class="quota-refresh"
+				class:toggled={sessionsOpen}
+				type="button"
+				aria-pressed={sessionsOpen}
+				onclick={() => (sessionsOpen = !sessionsOpen)}>Sessions</button
+			>
+			{#if checking}<span class="quota-checking">checking…</span>{/if}
+			<button
+				class="quota-refresh"
+				type="button"
+				disabled={checking}
+				onclick={() => check(true)}>Refresh</button
+			>
+		</div>
 	</div>
 
 	<!-- The boundary owns pending and failed states, exactly as the report's
@@ -152,77 +254,83 @@
 	     failure. -->
 	<svelte:boundary>
 		<div class="quota-cards">
-			{#each (await quota).providers as provider (provider.id)}
-				<article class="quota-card">
-					<header class="card-header">
-						<h3>{provider.label}</h3>
-						{#if provider.plan}<span class="card-plan">{provider.plan}</span
-							>{/if}
-					</header>
+			{#each (live ?? (await quota)).providers as provider (provider.id)}
+				{#if provider.windows.length === 0 && !provider.updated_at && checking}
+					<!-- Nothing was ever cached for this provider, so there is no last
+					     data to paint; hold the skeleton until the live check lands. -->
+					<article class="quota-card quota-card-pending"></article>
+				{:else}
+					<article class="quota-card">
+						<header class="card-header">
+							<h3>{provider.label}</h3>
+							{#if provider.plan}<span class="card-plan">{provider.plan}</span
+								>{/if}
+						</header>
 
-					{#if provider.windows.length === 0}
-						<p class="card-empty">
-							{provider.error ?? 'No limits were reported for this account.'}
-						</p>
-					{:else}
-						{#each provider.windows as window (window.id)}
-							{@const pace = target(window)}
-							<div class="limit">
-								<div class="limit-row">
-									<span class="limit-label">{window.label}</span>
-									<span class="limit-meta" title={resetsAt(window)}
-										>{resets(window)}</span
-									>
-									<span class="limit-percent {level(window.used_percent)}"
-										>{Math.round(window.used_percent)}%</span
-									>
-								</div>
-								<div
-									class="limit-bar"
-									role="meter"
-									aria-label={window.label}
-									aria-valuemin={0}
-									aria-valuemax={100}
-									aria-valuenow={Math.round(window.used_percent)}
-								>
-									<div
-										class="limit-fill"
-										style:width="{Math.min(100, window.used_percent)}%"
-										style:background={window.used_percent >= 90
-											? 'var(--danger)'
-											: (brandColor(provider.id) ?? 'var(--accent)')}
-									></div>
-									{#if pace !== null}
-										<div
-											class="limit-pace"
-											style:left="{pace}%"
-											aria-label="Expected by end of today (Sofia time): {Math.round(
-												pace
-											)}%"
+						{#if provider.windows.length === 0}
+							<p class="card-empty">
+								{provider.error ?? 'No limits were reported for this account.'}
+							</p>
+						{:else}
+							{#each provider.windows as window (window.id)}
+								{@const pace = target(window)}
+								<div class="limit">
+									<div class="limit-row">
+										<span class="limit-label">{window.label}</span>
+										<span class="limit-meta" title={resetsAt(window)}
+											>{resets(window)}</span
 										>
-											<span class="pace-bubble" aria-hidden="true"
-												>{Math.round(pace)}%</span
+										<span class="limit-percent {level(window.used_percent)}"
+											>{Math.round(window.used_percent)}%</span
+										>
+									</div>
+									<div
+										class="limit-bar"
+										role="meter"
+										aria-label={window.label}
+										aria-valuemin={0}
+										aria-valuemax={100}
+										aria-valuenow={Math.round(window.used_percent)}
+									>
+										<div
+											class="limit-fill"
+											style:width="{Math.min(100, window.used_percent)}%"
+											style:background={window.used_percent >= 90
+												? 'var(--danger)'
+												: (brandColor(provider.id) ?? 'var(--accent)')}
+										></div>
+										{#if pace !== null}
+											<div
+												class="limit-pace"
+												style:left="{pace}%"
+												aria-label="Expected by end of today (Sofia time): {Math.round(
+													pace
+												)}%"
 											>
-										</div>
-									{/if}
+												<span class="pace-bubble" aria-hidden="true"
+													>{Math.round(pace)}%</span
+												>
+											</div>
+										{/if}
+									</div>
 								</div>
-							</div>
-						{/each}
-					{/if}
+							{/each}
+						{/if}
 
-					<footer class="card-footer">
-						{#if provider.stale && provider.error}
-							<span class="card-stale" title={provider.error}
-								>stale · {shortError(provider.error)}</span
-							>
-						{/if}
-						{#if updated(provider)}
-							<span class="card-updated" title={updatedAt(provider)}
-								>{updated(provider)}</span
-							>
-						{/if}
-					</footer>
-				</article>
+						<footer class="card-footer">
+							{#if provider.stale && provider.error}
+								<span class="card-stale" title={provider.error}
+									>stale · {shortError(provider.error)}</span
+								>
+							{/if}
+							{#if updated(provider)}
+								<span class="card-updated" title={updatedAt(provider)}
+									>{updated(provider)}</span
+								>
+							{/if}
+						</footer>
+					</article>
+				{/if}
 			{/each}
 		</div>
 
@@ -268,6 +376,46 @@
 		font-weight: 500;
 	}
 
+	.quota-actions {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+
+	.quota-checking {
+		font: 0.72rem var(--font-mono);
+		color: var(--muted);
+		animation: quota-pulse 1.1s ease-in-out infinite alternate;
+	}
+
+	.track-error {
+		font: 0.72rem var(--font-mono);
+		color: var(--danger);
+	}
+
+	.track-name {
+		font: 0.72rem var(--font-mono);
+		color: var(--accent);
+		animation: quota-pulse 1.1s ease-in-out infinite alternate;
+		max-width: 200px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.track-input {
+		border: 1px solid var(--line-strong);
+		background: var(--surface);
+		color: var(--ink);
+		padding: 4px 10px;
+		font: 0.72rem var(--font-mono);
+		width: 150px;
+	}
+
+	.track-input::placeholder {
+		color: var(--muted);
+	}
+
 	.quota-refresh {
 		border: 1px solid var(--line-strong);
 		background: var(--surface);
@@ -280,6 +428,11 @@
 	.quota-refresh:disabled {
 		color: var(--muted);
 		cursor: default;
+	}
+
+	.quota-refresh.toggled {
+		background: var(--ink);
+		color: var(--bg);
 	}
 
 	.retry {
@@ -394,6 +547,9 @@
 		height: 100%;
 		border-radius: 3px;
 		background: var(--accent);
+		transition:
+			width 600ms cubic-bezier(0.25, 1, 0.4, 1),
+			background 600ms ease;
 	}
 
 	/* A widened, invisible hit area centred on the dotted line, so the hover
@@ -405,6 +561,7 @@
 		width: 16px;
 		transform: translateX(-50%);
 		cursor: help;
+		transition: left 600ms cubic-bezier(0.25, 1, 0.4, 1);
 	}
 
 	.limit-pace::before {

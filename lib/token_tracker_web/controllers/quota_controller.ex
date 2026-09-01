@@ -3,6 +3,7 @@ defmodule TokenTrackerWeb.QuotaController do
 
   def show(conn, params) do
     force = Map.get(params, "refresh") in ["1", "true"]
-    json(conn, TokenTracker.Quota.report(force: force))
+    cached = Map.get(params, "cached") in ["1", "true"]
+    json(conn, TokenTracker.Quota.report(force: force, cached: cached))
   end
 end

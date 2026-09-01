@@ -13,9 +13,15 @@
 	} from '$lib/report-query';
 	import QuotaSection from '$lib/QuotaSection.svelte';
 	import ReportView from '$lib/ReportView.svelte';
+	import TrackingSection from '$lib/TrackingSection.svelte';
 	import { dashboardSearchSchema, type FilterKey } from '$lib/search-params';
 
 	let { data } = $props();
+
+	// The tracking section stays fully absent until the header's Sessions
+	// toggle opens it; the choice is not persisted, so a fresh page starts
+	// collapsed.
+	let sessionsOpen = $state(false);
 
 	/**
 	 * The URL is the single source of truth for the report being viewed.
@@ -145,7 +151,11 @@
 		</div>
 	</header>
 
-	<QuotaSection quota={data.quota} />
+	<QuotaSection quota={data.quota} tracking={data.tracking} bind:sessionsOpen />
+
+	{#if sessionsOpen}
+		<TrackingSection tracking={data.tracking} />
+	{/if}
 
 	<section class="controls" aria-label="Report controls">
 		<div class="control-group" role="group" aria-label="Period">

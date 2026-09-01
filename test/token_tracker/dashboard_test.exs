@@ -66,7 +66,7 @@ defmodule TokenTracker.DashboardTest do
 
     report = response.report
     assert length(report.bars) == 24
-    assert Enum.count(report.bars, &(&1.label == "1 AM")) == 2
+    assert Enum.count(report.bars, &(&1.label == "01:00")) == 2
     assert report.combined.counters.sessions == 1
     assert report.combined.tokens == 200
     assert report.timeZone == "America/Los_Angeles"

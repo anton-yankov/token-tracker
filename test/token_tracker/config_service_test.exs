@@ -264,6 +264,7 @@ defmodule TokenTracker.ConfigServiceTest do
     cluster_cookie = "known-test-cluster-cookie"
     stub_runtime_child(TokenTracker.Sync.Server)
     stub_runtime_child(TokenTracker.Scheduler)
+    stub_runtime_child(TokenTracker.QuotaTracking.Sampler)
     stub_runtime_child(TokenTrackerWeb.Endpoint)
 
     config =
