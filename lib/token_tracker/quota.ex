@@ -26,11 +26,15 @@ defmodule TokenTracker.Quota do
 
   def report(opts \\ []) do
     force = Keyword.get(opts, :force, false)
+    cached = Keyword.get(opts, :cached, false)
     now = System.system_time(:millisecond)
     cache = read_cache()
 
+    # `cached` answers from the snapshot alone, never consulting providers:
+    # the dashboard paints last data instantly and runs the real check after.
     cache =
-      case Enum.filter(@providers, &due?(cache[&1.id], &1, now, force)) do
+      case (cached && []) ||
+             Enum.filter(@providers, &due?(cache[&1.id], &1, now, force)) do
         [] -> cache
         due -> refresh(cache, due, now)
       end

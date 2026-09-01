@@ -16,6 +16,10 @@ defmodule TokenTrackerWeb.Router do
     get("/report", ReportController, :show)
     get("/system", SystemController, :show)
     get("/quota", QuotaController, :show)
+    get("/tracking", TrackingController, :index)
+    post("/tracking/start", TrackingController, :start)
+    post("/tracking/stop", TrackingController, :stop)
+    delete("/tracking/:id", TrackingController, :delete)
     get("/fx", FxController, :show)
     match(:*, "/*path", NotFoundController, :show)
   end
